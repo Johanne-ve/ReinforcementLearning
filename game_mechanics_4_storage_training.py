@@ -301,6 +301,7 @@ class game_mechanics:
         action = 0
         max_storage_actions = 30  # ← NEU
         action_count = 0          # ← NEU
+        stuck_in_loop = False
         # NEU: Reward-Tracker
         reward_tracker = {
             'complete_load': 0,
@@ -314,6 +315,8 @@ class game_mechanics:
         while not(self.finished):
             action_count += 1          # ← NEU
             if action_count > max_storage_actions:  # ← NEU
+                print("Maximale Anzahl an Aktionen im Lager überschritten, breche Spiel ab.")
+                stuck_in_loop = True  # ← NEU
                 break                  # ← NEU
 
             old_action = action
@@ -363,12 +366,13 @@ class game_mechanics:
                     self.agv.load[n] = 0   # Lade alle Waren ab
                 self.update_state_vec_storage()
 
-            storage_agent.remember(old_state, action, reward, self.act_state_storage, self.finished)            
+            if not stuck_in_loop:
+                storage_agent.remember(old_state, action, reward, self.act_state_storage, self.finished)            
             self.total_reward += reward
             self.finished = self.test_finished()
             if (self.total_time > MAX_TIME_ONE_GAME) or self.finished:
-                return self.total_reward, self.total_time, reward_tracker
+                return self.total_reward, self.total_time, reward_tracker, stuck_in_loop
 
             
             
-        return self.total_reward, self.total_time, reward_tracker
+        return self.total_reward, self.total_time, reward_tracker, stuck_in_loop

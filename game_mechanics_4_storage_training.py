@@ -38,11 +38,11 @@ action_size_storage = 11
 ###### Please change as you please #########
 ###########################################
 REWARD_IMPOSSIBLE_ACTION = -1.0
-REWARD_COMPLETE_LOAD = 0.4
-REWARD_PARTIAL_LOAD = -0.4
+REWARD_COMPLETE_LOAD = 0.5
+REWARD_PARTIAL_LOAD = -0.9
 REWARD_EMPTY_AGV_POSITIONS_AWAY = [0.2, -0.1, -0.3, -0.5, -0.8]
-REWARD_URGENT_LOAD = 0.65
-REWARD_DRIVING_DISTANCE = -0.1
+REWARD_URGENT_LOAD = 0.35
+REWARD_DRIVING_DISTANCE = -0.04
 MAX_TIME_ONE_GAME = 3600*2
 ############################################
 ############################################

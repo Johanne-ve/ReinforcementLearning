@@ -299,34 +299,53 @@ class game_mechanics:
         res = -99
         dist = 0
         action = 0
-        #print(gm.act_state)
+        max_storage_actions = 30  # ← NEU
+        action_count = 0          # ← NEU
+        # NEU: Reward-Tracker
+        reward_tracker = {
+            'complete_load': 0,
+            'partial_load': 0,
+            'urgent_load': 0,
+            'driving_distance': 0,
+            'empty_away': 0,
+            'count_actions': 0
+        }
+        
         while not(self.finished):
-            #### Es erhält einen Malus für Distanzen zwischen Stationen geladener Waren
-            #### Es erhält Belohnung für erfüllte  Aufträge (soll dafür sorgen, dass AGV meist voll gefüllt wird)
-            #### Es erhält Malus für Aufräge, die überfällig sind
+            action_count += 1          # ← NEU
+            if action_count > max_storage_actions:  # ← NEU
+                break                  # ← NEU
 
             old_action = action
             old_state = [x for x in self.act_state_storage]
             state = np.reshape(old_state, [1, storage_agent.state_size])
 
-            ##### Erhalte nächste Aktion, merke Resultat
             res, action = self.game_step(storage_agent)
-            ######
             reward = 0
+            reward_tracker['count_actions'] += 1  # NEU
+            
             if res == -3:
                 reward += REWARD_PARTIAL_LOAD
-            elif (res == -9):  # Wenn Lager ein nicht volles AGV wegschicken möchte
-                reward += REWARD_EMPTY_AGV_POSITIONS_AWAY[self.agv.load.count(0)]
-                
+                reward_tracker['partial_load'] += REWARD_PARTIAL_LOAD  # NEU
+            elif (res == -9):
+                r = REWARD_EMPTY_AGV_POSITIONS_AWAY[self.agv.load.count(0)]
+                reward += r
+                reward_tracker['empty_away'] += r  # NEU
             elif res > 0:
                 reward += REWARD_COMPLETE_LOAD
+                reward_tracker['complete_load'] += REWARD_COMPLETE_LOAD  # NEU
                 if self.env.act_order_list[action + 1][1] < TIME_URGENT_ORANGE:
                     reward += REWARD_URGENT_LOAD
-                if self.env.act_order_list[action + 1][1] < TIME_URGENT_RED: # Wenn sogar ganz dringend, verdopple den reward fürs Aufladen
+                    reward_tracker['urgent_load'] += REWARD_URGENT_LOAD  # NEU
+                if self.env.act_order_list[action + 1][1] < TIME_URGENT_RED:
                     reward += REWARD_URGENT_LOAD
-            if old_action > 0:  # Es wurde etwas aufgeladen
+                    reward_tracker['urgent_load'] += REWARD_URGENT_LOAD  # NEU
+                    
+            if old_action > 0:
                 dist = self.env.get_driving_distance(old_action + 1, action + 1)
-                reward += REWARD_DRIVING_DISTANCE*dist
+                reward += REWARD_DRIVING_DISTANCE * dist
+                reward_tracker['driving_distance'] += REWARD_DRIVING_DISTANCE * dist  # NEU
+
             
             if (self.agv.load.count(0) == 0) or (res == - 9):  # Wenn AGV voll oder Lager AGV wegschickt -> Zustand resetten
                 action = 0
@@ -348,8 +367,8 @@ class game_mechanics:
             self.total_reward += reward
             self.finished = self.test_finished()
             if (self.total_time > MAX_TIME_ONE_GAME) or self.finished:
-                return self.total_reward, self.total_time
+                return self.total_reward, self.total_time, reward_tracker
 
             
             
-        return self.total_reward, self.total_time
+        return self.total_reward, self.total_time, reward_tracker

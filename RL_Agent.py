@@ -12,7 +12,7 @@ class DQNAgent:
     def __init__(self, state_size, action_size, gamma=0.99, epsilon=1.0, epsilon_min=0.01, epsilon_decay=0.995, learning_rate=0.001, load = ''):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=1024)
+        self.memory = deque(maxlen=20000)
 
         self.gamma = gamma
         self.epsilon = epsilon

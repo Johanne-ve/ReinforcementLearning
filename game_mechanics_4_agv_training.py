@@ -39,7 +39,7 @@ action_size_storage = 11
 ###### Please change as you please #########
 ###########################################
 
-REWARD_TIME_ELAPSED = -0.001
+REWARD_TIME_ELAPSED = -0.005           # ← 5× stärker (vorher -0.001)
 REWARD_NOT_FITTING_STATION = -0.5
 REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP = -1.0
 REWARD_EMPTY_BOXES_RETURN = 0
@@ -47,7 +47,7 @@ REWARD_RETURN_TO_STORAGE_WITH_GOODS = -0.5
 REWARD_RETURN_TO_STORAGE_EMPTY = 0.2
 REWARD_AGV_GOOD_0 = -0.3
 REWARD_IMPOSSIBLE_ACTION = -1.0
-REWARD_UNLOAD_GOOD = 0.5
+REWARD_UNLOAD_GOOD = 0.1               # ← runter (vorher 0.5)
 
 MAX_TIME_ONE_GAME = 3600*2
 ############################################
@@ -259,69 +259,87 @@ class game_mechanics:
 
     def run_game(self, agent):
         #print(gm.act_state)
+
+        total_tracker = {k: 0 for k in ['impossible_action', 'test_station_not_enough_cap',
+                                     'not_fitting_station', 'return_storage_with_goods',
+                                     'empty_boxes_return', 'return_storage_empty',
+                                     'agv_good_0', 'unload_good', 'time_elapsed']}
+
         while not(self.finished):
             old_state = [x for x in self.act_state]
             state = np.reshape(old_state, [1, agent.state_size])
             res, action = self.game_step(agent)
             next_state = np.reshape(self.act_state, [1, agent.state_size])
             self.award_points(res)
-            reward = self.get_rewards(res)
+
+            reward, tracker = self.get_rewards(res)  # ← tracker empfangen
+            for k in total_tracker:
+                total_tracker[k] += tracker[k]       # ← akkumulieren
             self.total_reward += reward
+
             if self.active_agent == 1:
                 if not((np.array_equal(state[0], next_state[0])) and (reward == 0)):
                     agent.remember(state[0], action, reward, next_state[0], self.finished)
                 if (self.total_time > MAX_TIME_ONE_GAME) or self.finished:
-                    return self.total_reward, self.total_time
+                    return self.total_reward, self.total_time, total_tracker
             #if np.abs(reward) > 5:
             #    print('Something strange happened...')
 
             self.finished = self.test_finished()
-        return self.total_reward, self.total_time
+        return self.total_reward, self.total_time, total_tracker
 
 
     def get_rewards(self, res):
         reward = 0
-        if (isinstance(res, int)):    # Abladen oder Aufladen
-            if res == -1:  # Aktion nicht durchführbar - Soll hier vermieden werden
+        tracker = {
+            'impossible_action': 0,
+            'test_station_not_enough_cap': 0,
+            'not_fitting_station': 0,
+            'return_storage_with_goods': 0,
+            'empty_boxes_return': 0,
+            'return_storage_empty': 0,
+            'agv_good_0': 0,
+            'unload_good': 0,
+            'time_elapsed': 0
+        }
+
+        if (isinstance(res, int)):
+            if res == -1:
                 reward += REWARD_IMPOSSIBLE_ACTION
-            elif res == -2:    # Nicht genügend Platz zum Aufladen - Soll hier nur an der Teststation passieren
+                tracker['impossible_action'] += REWARD_IMPOSSIBLE_ACTION  # ← NEU
+            elif res == -2:
                 reward += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
-            elif res == -3:  # AGV wählt leeren Ladeplatz
+                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP  # ← NEU
+            elif res == -3:
                 reward += REWARD_AGV_GOOD_0
-            elif (res > 0):   # Wenn res > 0 dann war action aufladen
-                if self.env.act_order_list[res][0] == 0:    # Aufladen eines unnötigen Gutes
-                    reward += 0# REWARD_LOAD_UNNECESSARY_GOOD
-                else:
-                    reward += 0# REWARD_LOAD_NECESSARY_GOOD
+                tracker['agv_good_0'] += REWARD_AGV_GOOD_0  # ← NEU
 
-        else:    # Fahrauftrag zu Ende
-            #print(type(res))
+        else:
             res_code = res[1]
-            if res_code == -60:   # An der Teststation gibt es nichts aufzuladen bzw agv ist voll
-                reward +=  REWARD_NOT_FITTING_STATION # hier bei Teststation
-            elif res_code == -5:  # AGV unnötig am Lger
-                reward += REWARD_RETURN_TO_STORAGE_WITH_GOODS
-            elif res_code == 50:   # Es wurde Leergut abgeladen
-                reward += REWARD_EMPTY_BOXES_RETURN
-            elif res_code == -1:  # Ist an einer Station angekommen, an der es nichts zu tun gibt
+            if res_code == -60:
                 reward += REWARD_NOT_FITTING_STATION
-            elif res_code == -2:   # Ist am Lager angekommen
-                if self.agv.load.count(0) == self.agv.capacity:   # agv ist leer
+                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION  # ← NEU
+            elif res_code == -5:
+                reward += REWARD_RETURN_TO_STORAGE_WITH_GOODS
+                tracker['return_storage_with_goods'] += REWARD_RETURN_TO_STORAGE_WITH_GOODS  # ← NEU
+            elif res_code == 50:
+                reward += REWARD_EMPTY_BOXES_RETURN
+                tracker['empty_boxes_return'] += REWARD_EMPTY_BOXES_RETURN  # ← NEU
+            elif res_code == -1:
+                reward += REWARD_NOT_FITTING_STATION
+                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION  # ← NEU
+            elif res_code == -2:
+                if self.agv.load.count(0) == self.agv.capacity:
                     reward += REWARD_RETURN_TO_STORAGE_EMPTY
-            elif res_code > 0:  # AGV an Teststation kann aber nicht alles aufladen
+                    tracker['return_storage_empty'] += REWARD_RETURN_TO_STORAGE_EMPTY  # ← NEU
+            elif res_code > 0:
                 reward += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
-            elif res_code == 0:  # passendes Gut abgeladen
+                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP  # ← NEU
+            elif res_code == 0:
                 reward += REWARD_UNLOAD_GOOD
-                if self.env.act_order_list[self.agv.act_stat][0] == 0:   # Auftrag komplett erfüllt
-                    if self.agv.load.count(self.agv.act_stat) == 0:  # Es war genau die passende Anzahl auf dem agv
-                        reward += 0# REWARD_COMPLETE_FULFILLMENT
-                    else:
-                        reward += 0# REWARD_COMPLETE_BUT_OVERFULFILLED  # Es war zuviel für die Station auf dem agv - das ist nicht gut, wurde aber schon beim Aufladen bestraft
-                else:    # Auftrag teilerfüllt
-                    reward += 0# REWARD_PARTIAL_FULFILLMENT
-            reward += REWARD_TIME_ELAPSED * res[0]
+                tracker['unload_good'] += REWARD_UNLOAD_GOOD  # ← NEU
 
-        reward += 0# sum([x[1] < 0 for x in self.env.act_order_list])*REWARD_ORDER_OVERDUE
-        return reward
-                
-         
+            reward += REWARD_TIME_ELAPSED * res[0]
+            tracker['time_elapsed'] += REWARD_TIME_ELAPSED * res[0]  # ← NEU
+
+        return reward, tracker

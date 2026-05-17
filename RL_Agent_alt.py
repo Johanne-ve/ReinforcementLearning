@@ -1,5 +1,6 @@
 
-# class DQNAgent with Target Network
+
+# class DQNAgent
 import numpy as np
 import random
 from collections import deque
@@ -21,7 +22,7 @@ class DQNAgent:
         
         # Target Network: Update-Counter
         self.update_target_counter = 0
-        self.update_target_every = 50  # alle 50 Trainingsschritte synchronisieren
+        self.update_target_every = 10  # alle 100 Trainingsschritte synchronisieren
 
         if load != '':
             self.model = tf.keras.models.load_model(load)
@@ -43,7 +44,7 @@ class DQNAgent:
     
         model = models.Model(inputs=inputs, outputs=outputs)
         model.compile(loss='mse', optimizer=optimizers.Adam(learning_rate=self.learning_rate))
-        return model  # WICHTIG: return statt self.model = 
+        return model  # WICHTIG: return statt self.model = model
 
     def update_target_model(self):
         """Kopiere Gewichte vom Haupt-Modell ins Target-Modell"""
@@ -53,77 +54,42 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def choose_action(self, state):
-        mask = state[0][-self.action_size:]
-        
-        '''# DEBUG: Maske überprüfen
-        if sum(mask) == 0:
-            agv_load = state[0][0:4]
-            agv_pos = np.argmax(state[0][4:17])
-            print(f"🚨 LEERE MASKE! Load: {agv_load}, Position: {agv_pos}")
-            print(f"   Epsilon: {self.epsilon:.3f}")
-            # Fallback: fahre zu Lager
-            return 0'''
-        
         if np.random.rand() <= self.epsilon:
             if np.random.rand() <= 0.001:
                 return random.randrange(self.action_size)
-            else:
-                usable_actions = [index for (index, item) in enumerate(mask) if item == 1]
+            else:  #  Wähle aus Maske der sinnigen Actions
+                usable_actions = [index for (index, item) in enumerate(state[0][-self.action_size:]) if item == 1]
                 random.shuffle(usable_actions)
                 return usable_actions[0]
 
-        # Exploitation: nur maskierte Aktionen erlauben
-        q_values = self.model.predict(state, verbose=0)[0]
-        
-        masked_q = q_values.copy()
-        for i in range(len(masked_q)):
-            if mask[i] == 0:
-                masked_q[i] = -np.inf
-        
-        chosen = np.argmax(masked_q)
-        
-        '''# DEBUG: Log wenn verdächtig
-        if np.random.rand() < 0.01:  # nur 1% der Zeit
-            print(f"Mask: {mask}, Chose: {chosen}, Q-values: {q_values}")'''
-        
-        return chosen
-        
+        ### Vorfiltern sinniger Fahraufträge
+        q_values = self.model.predict(state, verbose=0)
+        filter_vec = [x*50 for x in state[0][-self.action_size:]]  # Original-Maske
+        action_vec = q_values[0] + filter_vec
+        return np.argmax(action_vec)
 
     def replay(self, batch_size):
         if len(self.memory) < batch_size:
             return
 
         minibatch = random.sample(self.memory, batch_size)
-        
-        # Vektorisiert: alle States auf einmal verarbeiten
-        states = np.array([sample[0] for sample in minibatch])
-        actions = np.array([sample[1] for sample in minibatch])
-        rewards = np.array([sample[2] for sample in minibatch])
-        next_states = np.array([sample[3] for sample in minibatch])
-        dones = np.array([sample[4] for sample in minibatch])
-        
-        # EINE Prediction für alle current states
-        current_q_values = self.model.predict(states, verbose=0)
-        
-        # EINE Prediction für alle next states (mit target model!)
-        next_q_values = self.target_model.predict(next_states, verbose=0)
-        
-        # Targets berechnen (vektorisiert)
-        targets = current_q_values.copy()
-        for i in range(batch_size):
-            if dones[i]:
-                targets[i][actions[i]] = rewards[i]
+        states, targets = [], []
+
+        for state, action, reward, next_state, done in minibatch:
+            target = self.model.predict(np.array([state]), verbose=0)[0]
+            if done:
+                target[action] = reward
             else:
-                targets[i][actions[i]] = rewards[i] + self.gamma * np.max(next_q_values[i])
-        
-        # Training
-        self.model.fit(states, targets, epochs=1, verbose=0)
+                # KRITISCHE ÄNDERUNG: Verwende target_model für stabile Q-Targets
+                next_q = self.target_model.predict(np.array([next_state]), verbose=0)[0]
+                target[action] = reward + self.gamma * np.max(next_q)
+            states.append(state)
+            targets.append(target)
+
+        self.model.fit(np.array(states), np.array(targets), epochs=1, verbose=0)
 
         # Target Network periodisch updaten
         self.update_target_counter += 1
         if self.update_target_counter >= self.update_target_every:
             self.update_target_model()
             self.update_target_counter = 0
-
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay

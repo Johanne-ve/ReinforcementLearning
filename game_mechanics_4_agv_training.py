@@ -39,7 +39,7 @@ action_size_storage = 11
 ###### Please change as you please #########
 ###########################################
 
-REWARD_TIME_ELAPSED = -0.005           # ← 5× stärker (vorher -0.001)
+REWARD_TIME_ELAPSED = -0.005         # ← 5× stärker (vorher -0.001)
 REWARD_NOT_FITTING_STATION = -0.5
 REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP = -1.0
 REWARD_EMPTY_BOXES_RETURN = 0
@@ -47,7 +47,7 @@ REWARD_RETURN_TO_STORAGE_WITH_GOODS = -0.5
 REWARD_RETURN_TO_STORAGE_EMPTY = 0.2
 REWARD_AGV_GOOD_0 = -0.3
 REWARD_IMPOSSIBLE_ACTION = -1.0
-REWARD_UNLOAD_GOOD = 0.1               # ← runter (vorher 0.5)
+REWARD_UNLOAD_GOOD = 0.1            # ← runter (vorher 0.5)
 
 MAX_TIME_ONE_GAME = 3600*2
 ############################################
@@ -121,6 +121,12 @@ class game_mechanics:
             i += 1
     
     def change_OHE_mask(self):
+            # DEBUG: Wann wird das aufgerufen?
+        '''if np.random.rand() < 0.05:
+            import traceback
+            print(f"change_OHE_mask called, act_order_list[12] = {self.env.act_order_list[12]}")
+            traceback.print_stack(limit=3)'''
+
         station_mask = [0]*STATION_COUNT
         agv_free_cap = self.agv.load.count(0)
         if  agv_free_cap == self.agv.capacity:   # AGV ist leer -> Lager oder Teststation sinnvoll
@@ -138,12 +144,28 @@ class game_mechanics:
                 station_mask[1] = 1
             elif what > 0:
                 station_mask[what] = 1
+
+        # ========== NEU: HIER EINFÜGEN ==========
+        # Teststation NUR wenn wirklich Aufträge da sind
+        if self.env.act_order_list[12][0] == 0:
+            station_mask[12] = 0  # explizit deaktivieren
+        # ========================================
+
+        # === NEU: Aktuelle Position niemals erlauben ===
+        station_mask[self.agv.act_stat] = 0
+        # =============================================
+        
         i = 0
         for n in self.OHE_mask_range:
             self.act_state[n] = station_mask[i]
             i += 1
         
-
+        '''if np.random.rand() < 0.02:  # nur 2% der Zeit loggen
+            print(f"AGV Load: {self.agv.load}, Position: {self.agv.act_stat}")
+            print(f"Computed Mask: {station_mask}")
+            print(f"Order List: {[(i, self.env.act_order_list[i]) for i in range(13)]}")
+            print("---")
+'''
     def drive_to(self, new_stat):
         old_order_list = [x for x in self.env.act_order_list]
         delta_time, return_code = self.logic.driving_order(self.agv, self.env, new_stat)
@@ -306,40 +328,48 @@ class game_mechanics:
         if (isinstance(res, int)):
             if res == -1:
                 reward += REWARD_IMPOSSIBLE_ACTION
-                tracker['impossible_action'] += REWARD_IMPOSSIBLE_ACTION  # ← NEU
+                tracker['impossible_action'] += REWARD_IMPOSSIBLE_ACTION
             elif res == -2:
                 reward += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
-                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP  # ← NEU
+                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
             elif res == -3:
                 reward += REWARD_AGV_GOOD_0
-                tracker['agv_good_0'] += REWARD_AGV_GOOD_0  # ← NEU
+                tracker['agv_good_0'] += REWARD_AGV_GOOD_0
 
         else:
             res_code = res[1]
+            
+            '''# DEBUG: Log bei not_fitting_station
+            if res_code == -60 or res_code == -1:
+                print(f"🚨 NOT_FITTING! res_code: {res_code}")
+                print(f"   AGV Load: {self.agv.load}")
+                print(f"   AGV Position: {self.agv.act_stat}")
+                print(f"   Maske: {self.act_state[-13:]}")'''
+            
             if res_code == -60:
                 reward += REWARD_NOT_FITTING_STATION
-                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION  # ← NEU
+                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION
             elif res_code == -5:
                 reward += REWARD_RETURN_TO_STORAGE_WITH_GOODS
-                tracker['return_storage_with_goods'] += REWARD_RETURN_TO_STORAGE_WITH_GOODS  # ← NEU
+                tracker['return_storage_with_goods'] += REWARD_RETURN_TO_STORAGE_WITH_GOODS
             elif res_code == 50:
                 reward += REWARD_EMPTY_BOXES_RETURN
-                tracker['empty_boxes_return'] += REWARD_EMPTY_BOXES_RETURN  # ← NEU
+                tracker['empty_boxes_return'] += REWARD_EMPTY_BOXES_RETURN
             elif res_code == -1:
                 reward += REWARD_NOT_FITTING_STATION
-                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION  # ← NEU
+                tracker['not_fitting_station'] += REWARD_NOT_FITTING_STATION
             elif res_code == -2:
                 if self.agv.load.count(0) == self.agv.capacity:
                     reward += REWARD_RETURN_TO_STORAGE_EMPTY
-                    tracker['return_storage_empty'] += REWARD_RETURN_TO_STORAGE_EMPTY  # ← NEU
+                    tracker['return_storage_empty'] += REWARD_RETURN_TO_STORAGE_EMPTY
             elif res_code > 0:
                 reward += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
-                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP  # ← NEU
+                tracker['test_station_not_enough_cap'] += REWARD_TEST_STATION_NOT_ENOUGH_agv_CAP
             elif res_code == 0:
                 reward += REWARD_UNLOAD_GOOD
-                tracker['unload_good'] += REWARD_UNLOAD_GOOD  # ← NEU
+                tracker['unload_good'] += REWARD_UNLOAD_GOOD
 
             reward += REWARD_TIME_ELAPSED * res[0]
-            tracker['time_elapsed'] += REWARD_TIME_ELAPSED * res[0]  # ← NEU
+            tracker['time_elapsed'] += REWARD_TIME_ELAPSED * res[0]
 
         return reward, tracker
